@@ -19,7 +19,7 @@ jobs:
 
     - name: Record RTSP stream
       run: |
-        ffmpeg -i rtsp://AnsumanBehera:Anshu@2024@192.168.29.157:554/stream1 -c:v copy -t 3600 output/recorded_stream.mp4
+        ffmpeg -i rtsp://AnsumanBehera:Anshu2024@192.168.29.157:554/stream1 -c:v copy -t 3600 output/recorded_stream.mp4
 
     - name: Install Google Drive API Client
       run: |
