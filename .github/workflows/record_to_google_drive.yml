@@ -18,96 +18,93 @@ jobs:
     - name: Record RTSP stream
       run: |
         echo "Recording RTSP stream for 5 minutes..."
-        ffmpeg -i "rtsp://AnsumanBehera:Anshu@2024@192.168.29.157:554/stream1" -t 300 -c copy recorded_footage.mp4
+        ffmpeg -i "rtsp://AnsumanBehera:Anshu@2024@192.168.29.157:554/stream1" -t 300 -c copy recorded_footage.mp4 || exit 1
         echo "Recording complete."
 
     - name: Install Google Drive API Client
       run: |
         pip install --upgrade google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
 
+    - name: Check Google Drive storage usage
+      id: check_storage
+      run: |
+        echo "Checking Google Drive storage usage..."
+        python - <<EOF
+import os
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+
+creds = Credentials(
+    None,
+    refresh_token=os.getenv('GOOGLE_REFRESH_TOKEN'),
+    client_id=os.getenv('GOOGLE_CLIENT_ID'),
+    client_secret=os.getenv('GOOGLE_CLIENT_SECRET'),
+    token_uri='https://oauth2.googleapis.com/token',
+)
+service = build('drive', 'v3', credentials=creds)
+
+# Get total and used storage quota
+about = service.about().get(fields='storageQuota').execute()
+total_storage = int(about['storageQuota']['limit'])
+used_storage = int(about['storageQuota']['usage'])
+
+# Calculate percentage used
+percent_used = (used_storage / total_storage) * 100
+print(f"Google Drive is {percent_used:.2f}% full.")
+if percent_used > 90:
+    print("Exceeds 90% usage, exiting...")
+    exit(1)  # Exit with a non-zero code to stop the workflow
+EOF
+
     - name: Upload to Google Drive
+      if: steps.check_storage.outputs.result != '1'
       env:
         GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}  # Using the secret for Client ID
         GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}  # Using the secret for Client Secret
         GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}  # Using the secret for Refresh Token
       run: |
         echo "Uploading recorded footage to Google Drive..."
-        echo "import os
-        from google.oauth2.credentials import Credentials
-        from googleapiclient.discovery import build
-        from googleapiclient.http import MediaFileUpload
+        python - <<EOF
+import os
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 
-        creds = Credentials(
-            None,
-            refresh_token=os.getenv('GOOGLE_REFRESH_TOKEN'),
-            client_id=os.getenv('GOOGLE_CLIENT_ID'),
-            client_secret=os.getenv('GOOGLE_CLIENT_SECRET'),
-            token_uri='https://oauth2.googleapis.com/token',
-        )
+creds = Credentials(
+    None,
+    refresh_token=os.getenv('GOOGLE_REFRESH_TOKEN'),
+    client_id=os.getenv('GOOGLE_CLIENT_ID'),
+    client_secret=os.getenv('GOOGLE_CLIENT_SECRET'),
+    token_uri='https://oauth2.googleapis.com/token',
+)
 
-        service = build('drive', 'v3', credentials=creds)
+service = build('drive', 'v3', credentials=creds)
 
-        # Search for folder named 'footage'
-        folder_id = None
-        response = service.files().list(q=\"name='footage' and mimeType='application/vnd.google-apps.folder'\", spaces='drive').execute()
-        if response['files']:
-            folder_id = response['files'][0]['id']
-        else:
-            # Create folder if it doesn't exist
-            file_metadata = {
-                'name': 'footage',
-                'mimeType': 'application/vnd.google-apps.folder'
-            }
-            folder = service.files().create(body=file_metadata, fields='id').execute()
-            folder_id = folder.get('id')
+# Search for folder named 'footage'
+folder_id = None
+response = service.files().list(q="name='footage' and mimeType='application/vnd.google-apps.folder'", spaces='drive').execute()
+if response['files']:
+    folder_id = response['files'][0]['id']
+else:
+    # Create folder if it doesn't exist
+    file_metadata = {
+        'name': 'footage',
+        'mimeType': 'application/vnd.google-apps.folder'
+    }
+    folder = service.files().create(body=file_metadata, fields='id').execute()
+    folder_id = folder.get('id')
 
-        # Upload file to Google Drive
-        file_metadata = {
-            'name': 'recorded_footage.mp4',
-            'parents': [folder_id]
-        }
-        media = MediaFileUpload('recorded_footage.mp4', mimetype='video/mp4')
-        service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-        print(f\"Uploaded recorded_footage.mp4 to Google Drive in folder 'footage'\")"
+# Upload file to Google Drive
+file_metadata = {
+    'name': 'recorded_footage.mp4',
+    'parents': [folder_id]
+}
+media = MediaFileUpload('recorded_footage.mp4', mimetype='video/mp4')
+service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+print(f"Uploaded recorded_footage.mp4 to Google Drive in folder 'footage'")
+EOF
 
-    - name: Check Google Drive storage usage
+    - name: Delete local footage
       run: |
-        echo "Checking Google Drive storage usage..."
-        echo "import os
-        from google.oauth2.credentials import Credentials
-        from googleapiclient.discovery import build
-
-        creds = Credentials(
-            None,
-            refresh_token=os.getenv('GOOGLE_REFRESH_TOKEN'),
-            client_id=os.getenv('GOOGLE_CLIENT_ID'),
-            client_secret=os.getenv('GOOGLE_CLIENT_SECRET'),
-            token_uri='https://oauth2.googleapis.com/token',
-        )
-        service = build('drive', 'v3', credentials=creds)
-
-        # Get total and used storage quota
-        about = service.about().get(fields='storageQuota').execute()
-        total_storage = int(about['storageQuota']['limit'])
-        used_storage = int(about['storageQuota']['usage'])
-
-        # Calculate percentage used
-        percent_used = (used_storage / total_storage) * 100
-        print(f\"Google Drive is {percent_used:.2f}% full.\")
-
-        # Delete files if usage exceeds 90%
-        if percent_used > 90:
-            print(\"Google Drive storage exceeds 90%, deleting all files in 'footage' folder...\")
-            folder_id = None
-            response = service.files().list(q=\"name='footage' and mimeType='application/vnd.google-apps.folder'\", spaces='drive').execute()
-            if response['files']:
-                folder_id = response['files'][0]['id']
-
-                # List all files in the folder
-                response = service.files().list(q=f\"'{folder_id}' in parents\", spaces='drive').execute()
-
-                # Delete each file
-                for file in response['files']:
-                    service.files().delete(fileId=file['id']).execute()
-                    print(f\"Deleted {file['name']} from Google Drive.\")"
-
+        echo "Cleaning up local footage..."
+        rm recorded_footage.mp4 || echo "No local footage to clean up."
